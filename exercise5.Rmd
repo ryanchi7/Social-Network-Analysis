@@ -1,0 +1,344 @@
+---
+title: "Assignment 5"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+```{r}
+library(ergm)
+library(sna)
+startup_rounds_and_participants <- read.csv("C:/Users/ryan7/Downloads/startup_rounds_and_participants.csv")
+startup_rounds_and_participants
+
+#question 1
+
+#build a new index for id
+net <-startup_rounds_and_participants[,c(2,3,4)]
+net_startups <-net[net$participant_type =='Startup',]
+total_participants <- unique(append(net[,c(1)],net[,c(2)]))
+index =seq(1:179)
+
+id_rank <- cbind(index,total_participants)
+colnames(id_rank)[2] <- "startup_id"
+
+total1<- merge(startup_rounds_and_participants,id_rank, by ="startup_id")
+colnames(id_rank)[1] <- "index2"
+colnames(id_rank)[2] <- "participant_id"
+total<- merge(total1,id_rank, by ="participant_id")
+
+
+#build lists of participants
+net<-total[,c(7,8,4)]
+net_startups <-net[net$participant_type =='Startup',]
+
+
+#list of all participants
+net <-net[,c(1,2)]
+colnames(net)[1] <- "startup_id"
+colnames(net)[2] <- "participant_id"
+
+#list of participants with only startups
+net_startups <-net_startups[,c(1,2)]
+colnames(net_startups)[1] <- "startup_id"
+colnames(net_startups)[2] <- "participant_id"
+
+#ergrm function
+m1=ergm(net ~ edges + mutual,burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+m1.1=ergm(net_startups ~ edges + mutual,burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+
+#model results
+summary(m1)
+lapply(m1[1],exp)
+summary(m1.1)
+lapply(m1.1[1],exp)
+
+
+#for the second model, we only take the startup in, and the likelihood goes up because company would definitely participant more with other companies' investing rounds, which makes perfect sense in the real world.
+
+```
+```{r}
+#question 2
+round_id <- unique(startup_rounds_and_participants[,c(1)])
+round_index <- seq(1,152)
+round_table <- cbind(round_index,round_id)
+colnames(round_table)[2] <- "startup_round_id"
+
+total <- merge(total,round_table, by="startup_round_id")
+net_2 <- total[,c(9,7,8)]
+colnames(net_2)[2] <- "startup_id"
+colnames(net_2)[3] <- "participant_id"
+
+num <- aggregate(net_2[,c(1)]~net_2[,c(3)],net_2,length)
+colnames(num)[2] <- 'num_rounds'
+colnames(num)[1] <- 'participant_id'
+
+total_2_roundinfo <- merge(net_2,num, by="participant_id")
+
+net3 =network(total_2_roundinfo[,c("startup_id","participant_id")])
+plot(net3)
+
+
+#assign attributes
+set.edge.attribute(net3, "startup_id", total_2_roundinfo[,3])
+set.edge.attribute(net3, "participant_id", total_2_roundinfo[,1])
+
+set.vertex.attribute(net3, "num_rounds", total_2_roundinfo[,4])
+summary(net3)
+
+#ergm and results
+m2=ergm(net3 ~ edges + mutual +nodeicov("num_rounds"),burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+summary(m2)
+
+
+
+```
+```{r}
+#question3 
+library(lubridate)
+
+net_year <- total[,c(7,8,5)]
+typeof(net_year$round_record_date)
+net_year <- transform(net_year, round_record_date = as.Date(as.character(round_record_date), "%Y"))
+year(net_year$round_record_date)[year(net_year$round_record_date)==2014] <-2013
+net_year$round_record_date<- substr(net_year$round_record_date,0,4)
+
+net_year_dup <- unique(net_year)
+
+#use the duplicate function to find entries with same startup and participant
+net_year_dup<- net_year_dup[duplicated(net_year_dup[,1:2]),]
+colnames(net_year_dup)[3] <- "round_record_date_1"
+
+
+#find the realtionship exisiting in both years
+s1 =merge(net_year_dup, net_year, by = c("index","index2"))
+i<-which(!(s1$round_record_date_1==s1$round_record_date))
+s1<-s1[i, ]
+s1 = unique(s1)
+participant_type <-unique(total[,c(8,4)])
+
+#find the participant type with only "users", which shows 3 events happened in both years.
+s1 <- merge(s1, participant_type, by="index2")
+s1 <- s1[c(5,6,7),]
+colnames(s1)[1] <-"participant_id"
+colnames(s1)[2] <-"startup_id"
+s1
+
+#node attribute of startups have the same investors at different years
+#rep =1 means it has the same investor for 2012 as well as 2013, otherwise rep =0
+net_3 <-net
+j= 0
+net_3$rep = j
+net_3 <-unique(net_3)
+net_3$rep[net_3$participant_id=="111"]<-1
+net_3$rep[net_3$participant_id=="137"]<-1
+net_3$rep[net_3$participant_id=="149"]<-1
+net_3
+
+net4 =network(net_3[,c("startup_id","participant_id")])
+
+
+#assign attributes
+set.edge.attribute(net4, "startup_id", net_3[,1])
+set.edge.attribute(net4, "participant_id", net_3[,2])
+
+set.vertex.attribute(net4, "rep", net_3[,3])
+summary(net4)
+
+
+#ergm and results
+m3=ergm(net4 ~ edges + mutual +nodeicov("rep"),burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+summary(m3)
+
+#the coefficient is negative so it is less likely to happen.
+
+
+
+
+```
+```{r}
+#question 4
+
+#part1
+#in the current year of 2013
+net_2013 <-total[,c(7,8,6,4,5)]
+net_2013 <- transform(net_2013, round_record_date = as.Date(as.character(round_record_date), "%Y"))
+year(net_2013$round_record_date)[year(net_2013$round_record_date)==2014] <-2013
+net_2013$round_record_date<- substr(net_2013$round_record_date,0,4)
+net_2013 <-net_2013[net_2013$round_record_date=='2013',]
+net_2013 <-net_2013[net_2013$participant_type=='Startup',]
+net_2013[is.na(net_2013)] <- 0
+
+
+colnames(net_2013)[1] <-"participant_id"
+colnames(net_2013)[2] <-"startup_id"
+net5 =network(net_2013[,c("startup_id","participant_id")])
+
+#assign attributes
+set.edge.attribute(net5, "startup_id", net_2013[,1])
+set.edge.attribute(net5, "participant_id", net_2013[,2])
+set.vertex.attribute(net5, "traction", net_2013[,3])
+#summary(net5)
+
+
+m4.1=ergm(net5 ~ edges + mutual +absdiff("traction"),burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+summary(m4.1)
+
+# in the previous year of 2012
+
+net_2012 <-total[,c(7,8,6,4,5)]
+net_2012 <- transform(net_2012, round_record_date = as.Date(as.character(round_record_date), "%Y"))
+net_2012$round_record_date<- substr(net_2012$round_record_date,0,4)
+net_2012 <-net_2012[net_2012$round_record_date=='2012',]
+net_2012 <-net_2012[net_2012$participant_type=='Startup',]
+net_2012[is.na(net_2012)] <- 0
+
+
+colnames(net_2012)[1] <-"participant_id"
+colnames(net_2012)[2] <-"startup_id"
+net6 =network(net_2012[,c("startup_id","participant_id")])
+
+#assign attributes
+set.edge.attribute(net6, "startup_id", net_2012[,1])
+set.edge.attribute(net6, "participant_id", net_2012[,2])
+set.vertex.attribute(net6, "traction", net_2012[,3])
+#summary(net6)
+
+
+m4.2=ergm(net6 ~ edges + mutual +absdiff("traction"),burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+summary(m4.2)
+
+#part2
+#using the term of first year as well as previous year
+
+net_total <-total[,c(7,8,6,4,5)]
+net_total <- transform(net_total, round_record_date = as.Date(as.character(round_record_date), "%Y"))
+year(net_total$round_record_date)[year(net_total$round_record_date)==2014] <-2013
+net_total$round_record_date<- substr(net_total$round_record_date,0,4)
+net_total <-net_total[net_total$participant_type=='Startup',]
+net_total[is.na(net_total)] <- 0
+
+
+colnames(net_total)[1] <-"participant_id"
+colnames(net_total)[2] <-"startup_id"
+net7 =network(net_total[,c("startup_id","participant_id")])
+
+#assign attributes
+set.edge.attribute(net7, "startup_id", net_total[,1])
+set.edge.attribute(net7, "participant_id", net_total[,2])
+set.vertex.attribute(net7, "traction", net_total[,3])
+#summary(net7)
+
+
+m4.3=ergm(net7 ~ edges + mutual +absdiff("traction"),burnin=15000,MCMCsamplesize=30000,verbose=FALSE)
+summary(m4.3)
+
+
+
+
+```
+```{r}
+#question 5
+
+#for the first question
+#mcmc
+mcmc.diagnostics(m1)
+#simulation
+m1.sim=simulate(m1,nsim=100);
+simnet1=m1.sim[[1]]
+summary(simnet1)
+plot(simnet1)
+#goodness of fit
+m1.gof = gof(m1~idegree)
+plot(m1.gof)
+
+
+```
+```{r}
+#question5
+
+#for the second question
+#mcmc
+mcmc.diagnostics(m2)
+#simulation
+m2.sim=simulate(m2,nsim=100);
+simnet2=m2.sim[[1]]
+summary(simnet2)
+plot(simnet2)
+#goodness of fit
+m2.gof = gof(m2~idegree)
+plot(m2.gof)
+
+
+
+
+```
+```{r}
+#question5
+
+#for the third question
+#mcmc
+mcmc.diagnostics(m3)
+#simulation
+m3.sim=simulate(m3,nsim=100);
+simnet3=m3.sim[[1]]
+summary(simnet3)
+plot(simnet3)
+#goodness of fit
+m3.gof = gof(m3~idegree)
+plot(m3.gof)
+
+
+
+
+```
+```{r}
+#question5
+
+#for the forth question
+#mcmc
+mcmc.diagnostics(m4.3)
+#simulation
+m4.3.sim=simulate(m4.3,nsim=100);
+simnet4=m4.3.sim[[1]]
+summary(simnet4)
+plot(simnet4)
+#goodness of fit
+m4.3.gof = gof(m4.3~idegree)
+plot(m4.3.gof)
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
